@@ -175,7 +175,7 @@
 
 html, body { background: #02030d; }
 @utility glass {
-  background: color-mix(in oklch, var(--card) 55%, transparent);
+  background: color-mix(in oklch, var(--card) 38%, transparent);
   backdrop-filter: blur(14px) saturate(140%);
   border: 1px solid color-mix(in oklch, var(--primary) 22%, transparent);
   box-shadow: 0 10px 40px -10px oklch(0.5 0.2 260 / 0.45), inset 0 1px 0 oklch(1 0 0 / 0.06);

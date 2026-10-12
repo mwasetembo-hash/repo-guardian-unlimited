@@ -278,7 +278,7 @@ function Dashboard() {
   );
 
   return (
-    <div className="relative min-h-screen font-sans text-foreground">
+    <div className="relative isolate min-h-screen font-sans text-foreground">
       <CosmicBackground />
       <header className="glass sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <h1 className="text-glow text-xl font-bold tracking-tight">MWASE <span className="text-primary">DERIV BOT</span></h1>
