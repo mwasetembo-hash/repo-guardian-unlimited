@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiBrainRouteImport } from './routes/api/brain'
 import { Route as ApiDiagnoseRouteImport } from './routes/api/diagnose'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBrainRoute = ApiBrainRouteImport.update({
+  id: '/api/brain',
+  path: '/api/brain',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDiagnoseRoute = ApiDiagnoseRouteImport.update({
@@ -25,27 +31,31 @@ const ApiDiagnoseRoute = ApiDiagnoseRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/brain': typeof ApiBrainRoute
   '/api/diagnose': typeof ApiDiagnoseRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/brain': typeof ApiBrainRoute
   '/api/diagnose': typeof ApiDiagnoseRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/brain': typeof ApiBrainRoute
   '/api/diagnose': typeof ApiDiagnoseRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/diagnose'
+  fullPaths: '/' | '/api/brain' | '/api/diagnose'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/diagnose'
-  id: '__root__' | '/' | '/api/diagnose'
+  to: '/' | '/api/brain' | '/api/diagnose'
+  id: '__root__' | '/' | '/api/brain' | '/api/diagnose'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiBrainRoute: typeof ApiBrainRoute
   ApiDiagnoseRoute: typeof ApiDiagnoseRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/brain': {
+      id: '/api/brain'
+      path: '/api/brain'
+      fullPath: '/api/brain'
+      preLoaderRoute: typeof ApiBrainRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/diagnose': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiBrainRoute: ApiBrainRoute,
   ApiDiagnoseRoute: ApiDiagnoseRoute,
 }
 export const routeTree = rootRouteImport
