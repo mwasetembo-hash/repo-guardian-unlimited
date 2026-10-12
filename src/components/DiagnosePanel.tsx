@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const redact = (s: string) =>
   s.replace(/\b[A-Za-z0-9_-]{15,}\b/g, (m) => (/^\d+$/.test(m) ? m : "[redacted]"));
@@ -9,9 +9,11 @@ export function DiagnosePanel({ error, log, appId }: { error: string; log: strin
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState("");
   const ctrl = useRef<AbortController | null>(null);
+  const [ua, setUa] = useState("");
+  useEffect(() => setUa(navigator.userAgent), []);
 
   const report = redact(
-    `App ID: ${appId} (numeric: ${/^\d+$/.test(appId.trim())})\nBrowser: ${typeof navigator !== "undefined" ? navigator.userAgent : ""}\nError: ${error || "(none)"}\nTrader notes: ${note || "(none)"}\nRecent logs:\n${log.slice(0, 40).join("\n")}`,
+    `App ID: ${appId} (numeric: ${/^\d+$/.test(appId.trim())})\nBrowser: ${ua}\nError: ${error || "(none)"}\nTrader notes: ${note || "(none)"}\nRecent logs:\n${log.slice(0, 40).join("\n")}`,
   );
 
   async function run() {
@@ -38,7 +40,7 @@ export function DiagnosePanel({ error, log, appId }: { error: string; log: strin
   }
 
   return (
-    <section className="rounded-xl border border-border bg-card p-4 lg:col-span-3">
+    <section className="glass rounded-2xl p-4 lg:col-span-3">
       <h2 className="mb-1 font-semibold">AI connection doctor</h2>
       <p className="mb-2 text-xs text-muted-foreground">Sends your error and recent logs (tokens are hidden automatically) for an explanation and safe fixes.</p>
       <textarea
