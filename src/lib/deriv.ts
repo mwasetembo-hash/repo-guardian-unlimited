@@ -154,8 +154,8 @@ function candles(prices: number[], n = 5) {
 export type SignalPart = { name: string; score: number; bias: Direction | null; detail: string };
 
 /**
- * Multi-signal confluence: Triple EMA trend (35%), RSI momentum (20%),
- * SMC fair value gaps / order blocks (30%), tick velocity (15%).
+ * Multi-signal confluence across trend, momentum, SMC structure, MACD, Bollinger,
+ * stochastic, candle patterns and support/resistance, weighted by market regime.
  * Confidence = weighted agreement with the dominant direction. Not a guarantee.
  */
 export function computeSignal(prices: number[]): { dir: Direction | null; confidence: number; note: string; parts: SignalPart[] } {
@@ -203,12 +203,78 @@ export function computeSignal(prices: number[]): { dir: Direction | null; confid
     : ups <= 4 ? { name: "Tick velocity", score: (5 - ups) / 5, bias: "PUT", detail: `${ups}/10 up` }
     : { name: "Tick velocity", score: 0, bias: null, detail: "5/10 flat" };
 
-  const parts = [trend, mom, smc, vel];
-  const w = [0.35, 0.2, 0.3, 0.15];
+  // 5. MACD (12/26/9)
+  const macdSeries: number[] = [];
+  for (let k = Math.max(30, recent.length - 40); k <= recent.length; k++) {
+    const sl = recent.slice(0, k);
+    macdSeries.push(ema(sl, 12) - ema(sl, 26));
+  }
+  const macd = macdSeries[macdSeries.length - 1] ?? 0;
+  const sigLine = ema(macdSeries, 9);
+  const hist = macd - sigLine;
+  const sdAll = stdev(recent.slice(1).map((v, k) => v - recent[k]!)) || 1e-9;
+  const macdP: SignalPart = { name: "MACD 12/26/9", score: Math.min(1, Math.abs(hist) / (sdAll * 0.5)), bias: hist > 0 ? "CALL" : hist < 0 ? "PUT" : null, detail: `hist ${hist > 0 ? "+" : ""}${(hist / sdAll).toFixed(2)}σ` };
+
+  // 6. Bollinger Bands (20, 2)
+  const b20 = recent.slice(-20);
+  const mid = b20.reduce((a, b) => a + b, 0) / b20.length;
+  const bsd = stdev(b20) || 1e-9;
+  const pctB = (last - (mid - 2 * bsd)) / (4 * bsd);
+  const squeeze = (4 * bsd) / (stdev(recent.slice(-100)) * 4 || 1e-9) < 0.6;
+  let boll: SignalPart;
+  if (pctB > 1) boll = { name: "Bollinger 20/2", score: squeeze ? 0.9 : 0.5, bias: squeeze ? "CALL" : "PUT", detail: squeeze ? "Squeeze breakout up" : "Above upper band (stretched)" };
+  else if (pctB < 0) boll = { name: "Bollinger 20/2", score: squeeze ? 0.9 : 0.5, bias: squeeze ? "PUT" : "CALL", detail: squeeze ? "Squeeze breakout down" : "Below lower band (stretched)" };
+  else boll = { name: "Bollinger 20/2", score: Math.abs(pctB - 0.5), bias: pctB > 0.5 ? "CALL" : "PUT", detail: `%B ${(pctB * 100).toFixed(0)}${squeeze ? " · squeeze" : ""}` };
+
+  // 7. Stochastic (14,3)
+  const kOf = (end: number) => { const w = recent.slice(end - 14, end); const lo = Math.min(...w), hi = Math.max(...w); return hi === lo ? 50 : ((recent[end - 1]! - lo) / (hi - lo)) * 100; };
+  const kv = [kOf(recent.length), kOf(recent.length - 1), kOf(recent.length - 2)];
+  const kNow = kv[0]!, dNow = (kv[0]! + kv[1]! + kv[2]!) / 3;
+  let stoch: SignalPart;
+  if (kNow < 20 && kNow > dNow) stoch = { name: "Stochastic 14/3", score: 0.9, bias: "CALL", detail: `${kNow.toFixed(0)} oversold cross up` };
+  else if (kNow > 80 && kNow < dNow) stoch = { name: "Stochastic 14/3", score: 0.9, bias: "PUT", detail: `${kNow.toFixed(0)} overbought cross down` };
+  else stoch = { name: "Stochastic 14/3", score: Math.abs(kNow - dNow) / 30, bias: kNow > dNow ? "CALL" : "PUT", detail: `%K ${kNow.toFixed(0)} / %D ${dNow.toFixed(0)}` };
+
+  // 8. Candlestick patterns (engulfing, pin bar, three soldiers/crows)
+  let pat: SignalPart = { name: "Candle patterns", score: 0, bias: null, detail: "None" };
+  if (n >= 3) {
+    const a = cs[n - 3]!, b = cs[n - 2]!, c = cs[n - 1]!;
+    const body = (x: typeof c) => Math.abs(x.c - x.o), rng = (x: typeof c) => x.h - x.l || 1e-9;
+    if (b.c < b.o && c.c > c.o && c.c > b.o && c.o <= b.c) pat = { name: "Candle patterns", score: 0.9, bias: "CALL", detail: "Bullish engulfing" };
+    else if (b.c > b.o && c.c < c.o && c.c < b.o && c.o >= b.c) pat = { name: "Candle patterns", score: 0.9, bias: "PUT", detail: "Bearish engulfing" };
+    else if (body(c) / rng(c) < 0.3 && Math.min(c.o, c.c) - c.l > 2 * body(c)) pat = { name: "Candle patterns", score: 0.7, bias: "CALL", detail: "Hammer / bullish pin" };
+    else if (body(c) / rng(c) < 0.3 && c.h - Math.max(c.o, c.c) > 2 * body(c)) pat = { name: "Candle patterns", score: 0.7, bias: "PUT", detail: "Shooting star / bearish pin" };
+    else if ([a, b, c].every((x) => x.c > x.o) && c.c > b.c && b.c > a.c) pat = { name: "Candle patterns", score: 0.8, bias: "CALL", detail: "Three white soldiers" };
+    else if ([a, b, c].every((x) => x.c < x.o) && c.c < b.c && b.c < a.c) pat = { name: "Candle patterns", score: 0.8, bias: "PUT", detail: "Three black crows" };
+  }
+
+  // 9. Support / resistance breakout (swing high/low of last 100 ticks)
+  const sw = recent.slice(-100, -5);
+  const res = Math.max(...sw), sup = Math.min(...sw);
+  let sr: SignalPart;
+  if (last > res) sr = { name: "Support/Resistance", score: 0.9, bias: "CALL", detail: "Broke resistance" };
+  else if (last < sup) sr = { name: "Support/Resistance", score: 0.9, bias: "PUT", detail: "Broke support" };
+  else { const pos = (last - sup) / (res - sup || 1e-9); sr = pos < 0.15 ? { name: "Support/Resistance", score: 0.6, bias: "CALL", detail: "Bouncing off support" } : pos > 0.85 ? { name: "Support/Resistance", score: 0.6, bias: "PUT", detail: "Rejecting resistance" } : { name: "Support/Resistance", score: 0, bias: null, detail: `Mid-range ${(pos * 100).toFixed(0)}%` }; }
+
+  // Market regime: efficiency ratio (trending vs ranging) re-weights trend vs mean-reversion tools
+  const er = Math.abs(last - recent[recent.length - 50]!) / (recent.slice(-50).reduce((a, v, k, arr) => a + (k ? Math.abs(v - arr[k - 1]!) : 0), 0) || 1e-9);
+  const trending = er > 0.3;
+  const regime: SignalPart = { name: "Market regime", score: 0, bias: null, detail: `${trending ? "Trending" : "Ranging"} (efficiency ${(er * 100).toFixed(0)}%)` };
+
+  const parts = [trend, mom, smc, vel, macdP, boll, stoch, pat, sr];
+  const w = trending ? [0.2, 0.06, 0.16, 0.1, 0.16, 0.06, 0.04, 0.1, 0.12] : [0.08, 0.14, 0.14, 0.06, 0.08, 0.16, 0.14, 0.1, 0.1];
   let up = 0, down = 0;
-  parts.forEach((p, i) => { if (p.bias === "CALL") up += p.score * w[i]!; else if (p.bias === "PUT") down += p.score * w[i]!; });
+  parts.forEach((p, i) => { const s = Math.min(1, p.score); if (p.bias === "CALL") up += s * w[i]!; else if (p.bias === "PUT") down += s * w[i]!; });
   const dir: Direction = up >= down ? "CALL" : "PUT";
-  const confidence = Math.max(0, Math.round((Math.max(up, down) - Math.min(up, down) * 0.5) * 100));
-  const agreeing = parts.filter((p) => p.bias === dir).length;
-  return { dir, confidence, note: `${agreeing}/4 signals agree`, parts };
+  const agreeing = parts.filter((p) => p.bias === dir && p.score > 0.2).length;
+  const confluence = agreeing / parts.length;
+  const raw = (Math.max(up, down) - Math.min(up, down)) / (up + down || 1);
+  const confidence = Math.max(0, Math.min(99, Math.round((raw * 0.6 + confluence * 0.4) * 100)));
+  return { dir, confidence, note: `${agreeing}/${parts.length} signals agree · ${regime.detail}`, parts: [...parts, regime] };
+}
+
+function stdev(v: number[]) {
+  if (!v.length) return 0;
+  const m = v.reduce((a, b) => a + b, 0) / v.length;
+  return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / v.length);
 }

@@ -3,6 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DerivClient, computeSignal, fetchAccounts, fetchOtpUrl, type DerivAccount } from "@/lib/deriv";
 import { CATALOG, CONTRACTS, digitStats, groupOf, kindSignal, trendStrength, type Inst, type Kind } from "@/lib/contracts";
 import { DiagnosePanel } from "@/components/DiagnosePanel";
+import { BrainPanel } from "@/components/BrainPanel";
+import { CosmicBackground } from "@/components/CosmicBackground";
+import type { BrainVerdict } from "@/lib/brain-providers";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -61,6 +64,8 @@ function Dashboard() {
   const [log, setLog] = useState<string[]>([]);
   const [scan, setScan] = useState<ScanRow[]>([]);
   const [scanning, setScanning] = useState(false);
+  const [brain, setBrain] = useState<BrainVerdict | null>(null);
+  const [brainGate, setBrainGate] = useState(false);
   const curStake = useRef(1);
   const streak = useRef(0);
   const tickSub = useRef<string | null>(null);
@@ -240,6 +245,7 @@ function Dashboard() {
     if (trades.length >= maxTrades) { setAuto(false); addLog("Stopped: max trades reached"); return; }
     if (streak.current >= lossStreakStop) { setAuto(false); addLog(`Stopped: ${streak.current} losses in a row`); return; }
     if (sig.side === null || sig.confidence < minConf) return;
+    if (brainGate && (!brain || brain.side !== sig.side)) return;
     if (mode === "SIDE_A" && sig.side !== 0) return;
     if (mode === "SIDE_B" && sig.side !== 1) return;
     const amt = curStake.current;
@@ -272,9 +278,10 @@ function Dashboard() {
   );
 
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h1 className="text-lg font-bold tracking-tight">MWASE <span className="text-primary">DERIV BOT</span></h1>
+    <div className="relative isolate min-h-screen font-sans text-foreground">
+      <CosmicBackground />
+      <header className="glass sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <h1 className="text-glow text-xl font-bold tracking-tight">MWASE <span className="text-primary">DERIV BOT</span></h1>
         <div className="flex items-center gap-2 text-xs">
           <span className={`h-2.5 w-2.5 rounded-full ${status === "on" ? "bg-up" : status === "connecting" ? "bg-primary" : "bg-down"}`} />
           {status === "on" && account ? `${account.loginid} · ${account.isVirtual ? "DEMO" : "REAL"}` : status}
@@ -282,7 +289,7 @@ function Dashboard() {
       </header>
 
       <main className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-3">
-        <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <section className="space-y-3 glass rounded-2xl p-4">
           <h2 className="font-semibold">Deriv connection</h2>
           <label className="block text-xs text-muted-foreground">App ID
             <input value={appId} onChange={(e) => setAppId(e.target.value)} className={`mt-1 w-full ${field}`} />
@@ -311,13 +318,13 @@ function Dashboard() {
             ["Win rate", settled.length ? `${Math.round((wins / settled.length) * 100)}%` : "—"],
             ["Trades", `${trades.length}/${maxTrades}`],
           ].map(([k, v]) => (
-            <div key={k} className="rounded-xl border border-border bg-card p-4">
+            <div key={k} className="glass rounded-2xl p-4">
               <div className="text-xs text-muted-foreground">{k}</div>
               <div className={`mt-1 font-mono text-xl font-semibold ${k === "Session P/L" ? (net >= 0 ? "text-up" : "text-down") : ""}`}>{v}</div>
             </div>
           ))}
 
-          <div className="col-span-2 rounded-xl border border-border bg-card p-4 lg:col-span-4">
+          <div className="col-span-2 glass rounded-2xl p-4 lg:col-span-4">
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className={field}>
                 {GROUPS.map((g) => {
@@ -379,7 +386,7 @@ function Dashboard() {
           </div>
         </section>
 
-        <section className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <section className="space-y-3 glass rounded-2xl p-4">
           <h2 className="font-semibold">Trade parameters & risk</h2>
           <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1 text-xs">
             {(["SIDE_A", "SIDE_B", "SIGNAL"] as Mode[]).map((m) => (
@@ -417,7 +424,7 @@ function Dashboard() {
           <p className="text-xs text-muted-foreground">No strategy guarantees profit. Autopilot stops at your loss limit, profit target, trade cap or loss streak.</p>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-4 lg:col-span-2">
+        <section className="glass rounded-2xl p-4 lg:col-span-2">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-semibold">Market scanner</h2>
             <button disabled={status !== "on" || scanning} onClick={runScan} className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground disabled:opacity-40">
@@ -442,7 +449,7 @@ function Dashboard() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-4">
+        <section className="glass rounded-2xl p-4">
           <h2 className="mb-2 font-semibold">Trade history</h2>
           <div className="max-h-80 space-y-1 overflow-auto font-mono text-xs">
             {trades.length === 0 && <p className="text-muted-foreground">No trades yet.</p>}
@@ -455,13 +462,30 @@ function Dashboard() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-4 lg:col-span-2">
+        <section className="glass rounded-2xl p-4 lg:col-span-2">
           <h2 className="mb-2 font-semibold">Activity log</h2>
           <div className="max-h-80 overflow-auto font-mono text-xs text-muted-foreground">
             {log.map((l, i) => <div key={i}>{l}</div>)}
           </div>
         </section>
 
+        <BrainPanel
+          sides={def.sides}
+          onVerdict={(v) => { setBrain(v); if (v) addLog(`Brain (${v.provider}): ${v.side === null ? "WAIT" : def.sides[v.side]} ${v.confidence}%`); }}
+          getSnapshot={() => ({
+            symbol, name: inst?.name, marketType: inst?.group, contract: def.label, sideA: def.sides[0], sideB: def.sides[1],
+            duration: `${duration}${unit}`, barrier: def.barrier === "digit" ? digit : def.barrier === "offset" ? offset : def.barrier === "range" ? [hi, lo] : null,
+            last: prices[prices.length - 1], localSignal: { side: sig.side === null ? "WAIT" : def.sides[sig.side], confidence: sig.confidence, note: sig.note },
+            indicators: base.parts.map((p) => `${p.name}: ${p.detail} (${p.bias ?? "neutral"})`),
+            digits: stats ? stats.counts : undefined,
+            recentTicks: prices.slice(-120).filter((_, i) => i % 2 === 0),
+            session: { trades: trades.length, net },
+          })}
+        />
+        <label className="glass flex items-center gap-2 rounded-2xl p-3 text-sm lg:col-span-3">
+          <input type="checkbox" checked={brainGate} onChange={(e) => setBrainGate(e.target.checked)} />
+          Autopilot only trades when the AI Brain agrees with the chart signal
+        </label>
         <DiagnosePanel error={error} log={log} appId={appId} />
       </main>
     </div>
