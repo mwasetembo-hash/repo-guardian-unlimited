@@ -184,9 +184,35 @@ function Dashboard() {
     if (def.barrier === "offset") req["barrier"] = sgn(offset);
     if (def.barrier === "range") { req["barrier"] = sgn(hi); req["barrier2"] = sgn(lo); }
     const label = `${def.sides[side]}${def.barrier === "digit" ? ` ${digit}` : ""}`;
+    const isRate = (e: any) => /rate limit|RateLimit/i.test(String(e?.message ?? e?.code ?? e));
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const withBackoff = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      for (let i = 0; ; i++) {
+        try { return await fn(); } catch (e) {
+          if (!isRate(e) || i >= 5) throw e;
+          const wait = Math.min(1000 * 2 ** i, 16000) + Math.random() * 300;
+          addLog(`Rate limited, retrying in ${(wait / 1000).toFixed(1)}s`);
+          await sleep(wait);
+        }
+      }
+    };
     try {
-      const p = await c.send(req);
-      const b = await c.send({ buy: p.proposal.id, price: Number(amount.toFixed(2)) });
+      // Throttle: keep at least 1.2s between order requests
+      const g = globalThis as any;
+      const gap = Date.now() - (g.__lastOrderAt ?? 0);
+      if (gap < 1200) await sleep(1200 - gap);
+      g.__lastOrderAt = Date.now();
+      const { proposal: _p, ...params } = req;
+      const price = Number(amount.toFixed(2));
+      let b: any;
+      try {
+        // Direct buy with parameters skips the proposal call entirely
+        b = await withBackoff(() => c.send({ buy: 1, price, parameters: params }));
+      } catch (e: any) {
+        if (isRate(e)) throw e;
+        const p = await withBackoff(() => c.send(req));
+        b = await withBackoff(() => c.send({ buy: p.proposal.id, price }));
+      }
       const id = b.buy.contract_id as number;
       setTrades((t) => [{ id, label, stake: amount, profit: null, symbol, time: new Date().toLocaleTimeString() }, ...t]);
       addLog(`BUY ${label} ${amount.toFixed(2)} on ${symbol} #${id}`);
