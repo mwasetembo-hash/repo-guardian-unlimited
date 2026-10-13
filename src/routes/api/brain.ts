@@ -10,6 +10,16 @@ SIGNAL: <SIDE_A|SIDE_B|WAIT>
 CONFIDENCE: <0-100>
 Then 4-8 short bullet points of reasoning, ending with the main risk. Be honest: say WAIT when there is no edge.`;
 
+async function collect(r: { fullStream: AsyncIterable<any> }) {
+  let out = "";
+  for await (const part of r.fullStream) {
+    if (part.type === "text-delta") out += part.text ?? part.delta ?? "";
+    else if (part.type === "error") throw part.error;
+    else if (part.type === "abort") throw Object.assign(new Error("aborted"), { name: "AbortError" });
+  }
+  return out;
+}
+
 type Body = { snapshot?: unknown; provider?: ProviderId | "auto"; keys?: Record<string, string>; models?: Record<string, string> };
 
 async function forexContext(pair: string, keys: Record<string, string>) {
@@ -52,6 +62,7 @@ export const Route = createFileRoute("/api/brain")({
         const order = body.provider && body.provider !== "auto" ? PROVIDERS.filter((p) => p.id === body.provider) : PROVIDERS;
         const errors: string[] = [];
         for (const p of order) {
+          if (request.signal.aborted) return new Response(null, { status: 499 });
           const key = process.env[p.env] || keys[p.env];
           if (!key) { if (body.provider === p.id) errors.push(`${p.label}: no key configured`); continue; }
           const model = body.models?.[p.id] || p.model;
@@ -60,18 +71,19 @@ export const Route = createFileRoute("/api/brain")({
             if (p.id === "lovable") {
               const provider = createOpenAI({ baseURL: p.baseURL, apiKey: key, headers: { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "vercel-ai-sdk" } });
               const r = streamText({
-                model: provider.responses(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1,
+                model: provider.responses(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {},
                 providerOptions: { openai: { forceReasoning: true, reasoningEffort: "low", reasoningSummary: "auto", store: false, include: ["reasoning.encrypted_content"] } },
               });
-              text = await r.text;
+              text = await collect(r);
             } else {
               const provider = createOpenAI({ baseURL: p.baseURL, apiKey: key });
-              const r = streamText({ model: provider.chat(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1 });
-              text = await r.text;
+              const r = streamText({ model: provider.chat(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {} });
+              text = await collect(r);
             }
             if (!text.trim()) throw new Error("empty reply");
             return Response.json({ provider: p.label, text });
           } catch (e: any) {
+            if (request.signal.aborted || /abort/i.test(`${e?.name} ${e?.message} ${e?.cause?.name}`)) return new Response(null, { status: 499 });
             errors.push(`${p.label}: ${String(e?.message ?? e).slice(0, 200)}`);
           }
         }
