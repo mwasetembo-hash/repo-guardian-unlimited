@@ -52,6 +52,7 @@ export const Route = createFileRoute("/api/brain")({
         const order = body.provider && body.provider !== "auto" ? PROVIDERS.filter((p) => p.id === body.provider) : PROVIDERS;
         const errors: string[] = [];
         for (const p of order) {
+          if (request.signal.aborted) return new Response(null, { status: 499 });
           const key = process.env[p.env] || keys[p.env];
           if (!key) { if (body.provider === p.id) errors.push(`${p.label}: no key configured`); continue; }
           const model = body.models?.[p.id] || p.model;
@@ -72,7 +73,7 @@ export const Route = createFileRoute("/api/brain")({
             if (!text.trim()) throw new Error("empty reply");
             return Response.json({ provider: p.label, text });
           } catch (e: any) {
-            if (request.signal.aborted || e?.name === "AbortError") return new Response(null, { status: 499 });
+            if (request.signal.aborted || /abort/i.test(`${e?.name} ${e?.message} ${e?.cause?.name}`)) return new Response(null, { status: 499 });
             errors.push(`${p.label}: ${String(e?.message ?? e).slice(0, 200)}`);
           }
         }
