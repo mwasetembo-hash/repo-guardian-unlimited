@@ -60,18 +60,19 @@ export const Route = createFileRoute("/api/brain")({
             if (p.id === "lovable") {
               const provider = createOpenAI({ baseURL: p.baseURL, apiKey: key, headers: { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "vercel-ai-sdk" } });
               const r = streamText({
-                model: provider.responses(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1,
+                model: provider.responses(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {},
                 providerOptions: { openai: { forceReasoning: true, reasoningEffort: "low", reasoningSummary: "auto", store: false, include: ["reasoning.encrypted_content"] } },
               });
               text = await r.text;
             } else {
               const provider = createOpenAI({ baseURL: p.baseURL, apiKey: key });
-              const r = streamText({ model: provider.chat(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1 });
+              const r = streamText({ model: provider.chat(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {} });
               text = await r.text;
             }
             if (!text.trim()) throw new Error("empty reply");
             return Response.json({ provider: p.label, text });
           } catch (e: any) {
+            if (request.signal.aborted || e?.name === "AbortError") return new Response(null, { status: 499 });
             errors.push(`${p.label}: ${String(e?.message ?? e).slice(0, 200)}`);
           }
         }

@@ -74,7 +74,7 @@ export const Route = createFileRoute("/api/diagnose")({
                     include: ["reasoning.encrypted_content"],
                   },
                 },
-                onError: ({ error }) => console.error(`diagnose error [${entry.id}]`, error),
+                onError: ({ error }) => { if ((error as any)?.name !== "AbortError" && !request.signal.aborted) console.error(`diagnose error [${entry.id}]`, error); },
               });
               const res = result.toTextStreamResponse({
                 headers: { "Cache-Control": "no-cache, no-transform" },
@@ -89,7 +89,7 @@ export const Route = createFileRoute("/api/diagnose")({
               messages: [{ role: "user", content: report }],
               abortSignal: request.signal,
               maxRetries: 0,
-              onError: ({ error }) => console.error(`diagnose error [${entry.id}]`, error),
+              onError: ({ error }) => { if ((error as any)?.name !== "AbortError" && !request.signal.aborted) console.error(`diagnose error [${entry.id}]`, error); },
             });
             return result.toTextStreamResponse({
               headers: { "Cache-Control": "no-cache, no-transform" },
