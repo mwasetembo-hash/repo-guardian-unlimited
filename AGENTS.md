@@ -8,3 +8,4 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+- AI Brain (/api/brain) tries server-side secret keys first, then browser-entered keys, across OpenAI-compatible providers in src/lib/brain-providers.ts — so users can add engines without code changes.
