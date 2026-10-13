@@ -10,6 +10,16 @@ SIGNAL: <SIDE_A|SIDE_B|WAIT>
 CONFIDENCE: <0-100>
 Then 4-8 short bullet points of reasoning, ending with the main risk. Be honest: say WAIT when there is no edge.`;
 
+async function collect(r: { fullStream: AsyncIterable<any> }) {
+  let out = "";
+  for await (const part of r.fullStream) {
+    if (part.type === "text-delta") out += part.text ?? part.delta ?? "";
+    else if (part.type === "error") throw part.error;
+    else if (part.type === "abort") throw Object.assign(new Error("aborted"), { name: "AbortError" });
+  }
+  return out;
+}
+
 type Body = { snapshot?: unknown; provider?: ProviderId | "auto"; keys?: Record<string, string>; models?: Record<string, string> };
 
 async function forexContext(pair: string, keys: Record<string, string>) {
@@ -64,11 +74,11 @@ export const Route = createFileRoute("/api/brain")({
                 model: provider.responses(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {},
                 providerOptions: { openai: { forceReasoning: true, reasoningEffort: "low", reasoningSummary: "auto", store: false, include: ["reasoning.encrypted_content"] } },
               });
-              text = await r.text;
+              text = await collect(r);
             } else {
               const provider = createOpenAI({ baseURL: p.baseURL, apiKey: key });
               const r = streamText({ model: provider.chat(model), system: SYSTEM, prompt, abortSignal: request.signal, maxRetries: 1, onError: () => {} });
-              text = await r.text;
+              text = await collect(r);
             }
             if (!text.trim()) throw new Error("empty reply");
             return Response.json({ provider: p.label, text });
